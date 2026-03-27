@@ -1,0 +1,7 @@
+data/
+logs/
+model_weight/
+submission/
+wandb/
+
+*.pyc
