@@ -5,7 +5,9 @@
 ## Introduction
 
 HW1
-Task: Image classification 100 categories
+Task: RGB Image classification 100 categories base on ResNet backbone
+
+Core idea: to solve the overfitting problem, use `TrivialAugmentWide`, `448 * 448 Resolution` and `StarHead` to improve the performance
 
 
 ## Requirements (Environment Setup)
