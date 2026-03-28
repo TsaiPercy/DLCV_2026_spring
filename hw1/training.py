@@ -1,23 +1,15 @@
 import os
 import logging
 from datetime import datetime
-
 import random
+
 import numpy as np
-# from tqdm import tqdm
 import wandb
-
-
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader # , ConcatDataset, TensorDataset
+from torch.utils.data import DataLoader
 from torchvision import datasets, models
-
-# from sklearn.model_selection import StratifiedShuffleSplit
-
-
 
 # my append py
 import func
@@ -37,7 +29,6 @@ logging.basicConfig(
     handlers=[
         # write to log file
         logging.FileHandler(logPath, mode='w', encoding='utf-8'),
-
         # and print on terminal
         logging.StreamHandler()
     ]
@@ -72,35 +63,22 @@ def seed_worker(workerId):
 # ==========================================
 # training main
 # ==========================================
-def training(trainDir,
-             validDir,
-             savePath,
-             batchSize,
-             numWorkers,
-             numEpochs,
-             learningRate,
-             weightDecay,
-             numClasses,
-             dropoutRate,
-             model,
-             imgResize,
-             seed,
-             generator,
-             use_StarHead,
-             ):
-    
-    
+def training(trainDir, validDir, savePath, batchSize, numWorkers,
+             numEpochs, learningRate, weightDecay, numClasses, dropoutRate,
+             model, imgResize, seed, generator, use_StarHead):
+
     # ==============================================================
     # model setting
     # ==============================================================
-    
     if use_StarHead:
-        model = func.build_model_StarHead(model=model, numClasses=numClasses, dropoutRate=dropoutRate).to(device)
+        model = func.build_model_StarHead(
+            model=model, numClasses=numClasses, dropoutRate=dropoutRate
+        ).to(device)
     else:
-        model = func.build_model(model=model, numClasses=numClasses, dropoutRate=dropoutRate).to(device)
-    
+        model = func.build_model(
+            model=model, numClasses=numClasses, dropoutRate=dropoutRate
+        ).to(device)
 
-    
     logger.info(f"[Training] Model moved to {device}")
 
     # label smoothing
@@ -117,25 +95,29 @@ def training(trainDir,
             backboneParams.append(param)
 
     optimizer = optim.AdamW([
-        {"params": backboneParams, "lr": learningRate * 0.1},  # backbone use 1/10 lr
+        {"params": backboneParams, "lr": learningRate * 0.1},
         {"params": headParams, "lr": learningRate},
     ], weight_decay=weightDecay)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=numEpochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=numEpochs
+    )
 
-    logger.info(f"[Training] Backbone lr={learningRate * 0.1}, Head lr={learningRate}")
+    logger.info(f"[Training] Backbone lr={learningRate * 0.1}, "
+                f"Head lr={learningRate}")
     logger.info(f"[Training] Optimizer=AdamW, weight_decay={weightDecay}")
     logger.info(f"[Training] Scheduler=CosineAnnealingLR, T_max={numEpochs}")
 
     # ==============================================================
     # load data
     # ==============================================================
-
     trainDataset = datasets.ImageFolder(trainDir)
-    logger.info(f"[Data] load {len(trainDataset)} train data, total {len(trainDataset.classes)} classes")
+    logger.info(f"[Data] load {len(trainDataset)} train data, "
+                f"total {len(trainDataset.classes)} classes")
 
     valDataset = datasets.ImageFolder(validDir)
-    logger.info(f"[Data] load {len(valDataset)} valid data, total {len(valDataset.classes)} classes")
+    logger.info(f"[Data] load {len(valDataset)} valid data, "
+                f"total {len(valDataset.classes)} classes")
 
     if trainDataset.class_to_idx != valDataset.class_to_idx:
         logger.error("Train and Val class different")
@@ -147,18 +129,20 @@ def training(trainDir,
     trainDataset.transform = trainTransform
     valDataset.transform = valTransform
 
-    trainLoader = DataLoader(trainDataset, batch_size=batchSize, shuffle=True,
-                             num_workers=numWorkers, worker_init_fn=seed_worker, generator=generator)
-    valLoader = DataLoader(valDataset, batch_size=batchSize, shuffle=False,
-                           num_workers=numWorkers, worker_init_fn=seed_worker, generator=generator)
-
-
+    trainLoader = DataLoader(
+        trainDataset, batch_size=batchSize, shuffle=True,
+        num_workers=numWorkers, worker_init_fn=seed_worker,
+        generator=generator
+    )
+    valLoader = DataLoader(
+        valDataset, batch_size=batchSize, shuffle=False,
+        num_workers=numWorkers, worker_init_fn=seed_worker,
+        generator=generator
+    )
 
     # ==============================================================
     # W&B setting
     # ==============================================================
-
-
     wandb.init(
         project="NYCU_DLCV_HW1",
         name=f"ResNet50_lr{learningRate}_bs{batchSize}",
@@ -180,31 +164,37 @@ def training(trainDir,
         }
     )
 
-
     # ==============================================================
     # train start
     # ==============================================================
-
     bestValLoss = 10000.0
     bestValAcc = -1
 
     for epoch in range(numEpochs):
-
-        trainLoss, trainAcc = func.train_one_epoch(model, trainLoader, optimizer, criterion)
+        trainLoss, trainAcc = func.train_one_epoch(
+            model, trainLoader, optimizer, criterion
+        )
         valLoss, valAcc = func.eval_one_epoch(model, valLoader, criterion)
         scheduler.step()
 
         currentLr = optimizer.param_groups[0]["lr"]
         logger.info(f"Epoch [{epoch+1}/{numEpochs}] lr={currentLr:.6f}")
-        logger.info(f"   Train Loss: {trainLoss:.4f} | Train Acc: {trainAcc:.5f}")
-        logger.info(f"   Val   Loss: {valLoss:.4f} | Val   Acc: {valAcc:.5f}")
-        logger.info("---------------------------------------------------")
+
+        logger.info(f"   Train Loss: {trainLoss:.4f} | "
+                    f"Train Acc: {trainAcc:.5f}")
+
+        logger.info(f"   Val   Loss: {valLoss:.4f} | "
+                    f"Val   Acc: {valAcc:.5f}")
+
+        logger.info("-" * 51)
 
         if valLoss < bestValLoss:
             bestValLoss = valLoss
             bestValAcc = valAcc
             torch.save(model.state_dict(), savePath)
-            logger.info(f"Model saved to: {savePath} (Val Loss: {valLoss:.5f}) (Val Acc: {valAcc:.5f})")
+            logger.info(f"Model saved to: {savePath} "
+                        f"(Val Loss: {valLoss:.5f}) "
+                        f"(Val Acc: {valAcc:.5f})")
 
         wandb.log({
             "Epoch": epoch+1,
@@ -215,10 +205,9 @@ def training(trainDir,
             "Learning_Rate": currentLr
         })
 
-
-    logger.info(f"[Training] Train finish, Best Val Acc: {bestValAcc:.5f} Best Val Loss: {bestValLoss:.5f}")
+    logger.info(f"[Training] Train finish, Best Val Acc: {bestValAcc:.5f} "
+                f"Best Val Loss: {bestValLoss:.5f}")
     wandb.finish()
-
 
 
 # ==========================================
@@ -238,7 +227,6 @@ def main():
     # --------------------------------------------------------------
     # path setting
     # --------------------------------------------------------------
-
     trainDir = "./data/train"
     validDir = "./data/val"
     savePath = f"./model_weight/resnet50_best_{currentTime}.pth"
@@ -247,7 +235,6 @@ def main():
     # ==============================================================
     # hyper setting
     # ==============================================================
-
     batchSize = 32
     numWorkers = 8
     numEpochs = 100
@@ -262,14 +249,12 @@ def main():
     use_StarHead = True
 
     # Resize img for input
-    # imgResize = (224, 224)
-    imgResize = (448, 448)
-
+    imgResize = (448, 448)  # (224, 224) , (448, 448)
 
     logger.info(f"[Config] batch_size={batchSize}, epochs={numEpochs}")
     logger.info(f"[Config] lr={learningRate}, weight_decay={weightDecay}")
     logger.info(f"[Config] num_classes={numClasses}, img_resize={imgResize}")
-    logger.info(f"[Config] model=ResNet50")
+    logger.info("[Config] model=ResNet50")
 
     training(
         trainDir=trainDir,

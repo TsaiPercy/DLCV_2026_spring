@@ -2,17 +2,23 @@
 基於深度學習之視覺辨識專論 Selected Topics in Visual Recognition using Deep Learning
 
 
-## HW1
+## Introduction
+
+HW1
 Task: Image classification 100 categories
 
 
-## Requirements
+## Requirements (Environment Setup)
 
-python version:
+python version: Python 3.12.12
 
 
 ```bash
-pip install 
+conda env create -f environment.yml
+
+or
+
+pip install -r requirements.txt
 ```
 
 ## File Structure
@@ -40,7 +46,7 @@ hw1/
 └── training.py
 
 ```
-## How to Run
+## How to Run (Usage)
 
 1. train model
 
@@ -63,3 +69,11 @@ hw1/
 - `inference.py`: result csv would save in submission folder
 
 - `func.py`: import by `training.py` and `inference.py`, no need to modify
+
+
+## Performance Snapshot
+
+![alt text](image.png)
+![alt text](image-2.png)
+![alt text](image-1.png)
+

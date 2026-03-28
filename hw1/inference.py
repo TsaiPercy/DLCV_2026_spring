@@ -120,15 +120,14 @@ def main():
     logger.info(f"Using device: {device}")
     logger.info("=" * 50)
 
-    train_model_name = "20260327_120646"
+    train_model_name = "20260328_004701"
     testDir = "./data/test"
     weightPath = f"./model_weight/resnet50_best_{train_model_name}.pth"
 
     outputCsv = f"./submission/prediction_{currentTime}_{train_model_name}.csv"
     os.makedirs(os.path.dirname(outputCsv), exist_ok=True)
 
-    # imgResize = (224, 224)
-    imgResize = (448, 448)
+    imgResize = (448, 448)  # (224, 224) , (448, 448)
     batchSize = 64
     model = models.resnet50(weights="IMAGENET1K_V2")
     use_StarHead = True

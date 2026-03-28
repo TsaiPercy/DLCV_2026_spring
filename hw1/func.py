@@ -1,17 +1,11 @@
 import os
 import logging
+
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms, datasets, models
-
+from torch.utils.data import Dataset
+from torchvision import transforms
 from PIL import Image
-from sklearn.model_selection import StratifiedShuffleSplit
-
-import random
-import numpy as np
 from tqdm import tqdm
 
 
@@ -31,7 +25,8 @@ class ImageDataset(Dataset):
         self.imgDir = imgDir
         self.fileNames = sorted(os.listdir(imgDir))
         self.transform = transform
-        logger.debug(f"[ImageDataset] load {len(self.fileNames)} imgs from {imgDir}")
+        logger.debug(f"[ImageDataset] load {len(self.fileNames)} "
+                     f"imgs from {imgDir}")
 
     def __len__(self):
         return len(self.fileNames)
@@ -42,8 +37,6 @@ class ImageDataset(Dataset):
         return self.transform(img), fileName
 
 
-
-
 # ==========================================
 # check_model_size
 # ==========================================
@@ -51,14 +44,15 @@ def check_model_size(model):
     totalParams = sum(p.numel() for p in model.parameters())
     totalParamsInMillion = totalParams / 1e6
 
-    logger.info(f"========================================")
+    logger.info("========================================")
     logger.info(f"Total Params (M): {totalParamsInMillion:.2f} M")
-    logger.info(f"========================================")
+    logger.info("========================================")
 
     if totalParamsInMillion >= 100:
-        logger.warning(f"model_size over 100M: now ({totalParamsInMillion:.2f}M)")
+        logger.warning("model_size over 100M: "
+                       f"now ({totalParamsInMillion:.2f}M)")
     else:
-        logger.info(f"model_size correctly < 100M)")
+        logger.info("model_size correctly < 100M)")
 
     return totalParamsInMillion
 
@@ -77,8 +71,9 @@ def build_model(model, numClasses=100, dropoutRate=0.5):
         nn.Linear(inFeatures, numClasses)
     )
 
-    logger.debug(f"[build_model] fc layer change:"
-                    f"in_features={inFeatures}, Dropout(p={dropoutRate}), num_classes={numClasses}")
+    logger.debug("[build_model] fc layer change: "
+                 f"in_features={inFeatures}, Dropout(p={dropoutRate}), "
+                 f"num_classes={numClasses}")
     check_model_size(model)
 
     return model
@@ -92,7 +87,7 @@ def load_weight(model, weightPath):
     stateDict = torch.load(weightPath, map_location=device)
     model.load_state_dict(stateDict)
     model.to(device)
-    logger.info(f"[load_weight] load_weight finish")
+    logger.info("[load_weight] load_weight finish")
     return model
 
 
@@ -131,7 +126,8 @@ def train_one_epoch(model, dataloader, optimizer, criterion):
 
     epochLoss = totalLoss / totalCount
     epochAcc = correctCount / totalCount
-    logger.debug(f"[train_one_epoch] loss={epochLoss:.5f}, acc={epochAcc:.5f}")
+    logger.debug(f"[train_one_epoch] loss={epochLoss:.5f}, "
+                 f"acc={epochAcc:.5f}")
     return epochLoss, epochAcc
 
 
@@ -166,7 +162,8 @@ def eval_one_epoch(model, dataloader, criterion):
 
     epochLoss = totalLoss / totalCount
     epochAcc = correctCount / totalCount
-    logger.debug(f"[eval_one_epoch] loss={epochLoss:.5f}, acc={epochAcc:.5f}")
+    logger.debug(f"[eval_one_epoch] loss={epochLoss:.5f}, "
+                 f"acc={epochAcc:.5f}")
     return epochLoss, epochAcc
 
 
@@ -197,34 +194,16 @@ def set_transform(imgResize):
     return trainTransform, valTransform
 
 
-"""
-class FocalLoss(nn.Module):
-    def __init__(self, gamma=2.0, label_smoothing=0.1):
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
-        self.label_smoothing = label_smoothing
-
-    def forward(self, inputs, targets):
-        ce_loss = F.cross_entropy(inputs, targets, 
-                                  label_smoothing=self.label_smoothing, 
-                                  reduction='none')
-        pt = torch.exp(-ce_loss)
-        
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-        return focal_loss.mean()
-"""
-
-
 class StarHead(nn.Module):
     def __init__(self, in_features, num_classes, dropout_rate=0.5):
         super(StarHead, self).__init__()
-        
+
         self.fc1 = nn.Linear(in_features, in_features)
         self.fc2 = nn.Linear(in_features, in_features)
-        
+
         # activate function
         self.act = nn.GELU()
-        
+
         self.dropout = nn.Dropout(p=dropout_rate)
         self.classifier = nn.Linear(in_features, num_classes)
 
@@ -232,22 +211,24 @@ class StarHead(nn.Module):
         # 1. Star Operation
         x1 = self.fc1(x)
         x2 = self.fc2(x)
-        x_star = x1 * x2  
-        
+        x_star = x1 * x2
+
         # 2. activate func and Dropout
         x_out = self.act(x_star)
         x_out = self.dropout(x_out)
-        
+
         return self.classifier(x_out)
 
 
 def build_model_StarHead(model, numClasses=100, dropoutRate=0.5):
     inFeatures = model.fc.in_features
 
-    model.fc = StarHead(in_features=inFeatures, 
-                        num_classes=numClasses, 
+    model.fc = StarHead(in_features=inFeatures,
+                        num_classes=numClasses,
                         dropout_rate=dropoutRate)
-    
-    logger.debug(f"[build_model] fc layer use StarHead:"
+
+    logger.debug("[build_model] fc layer use StarHead: "
                  f"in_features={inFeatures}, num_classes={numClasses}")
+    check_model_size(model)
+
     return model
