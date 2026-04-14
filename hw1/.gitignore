@@ -4,4 +4,11 @@ model_weight/
 submission/
 wandb/
 
+
+submit/
+
+other/
+
+*.docx
+
 *.pyc

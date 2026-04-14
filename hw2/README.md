@@ -1,10 +1,6 @@
 # DLCV_2026_spring
 基於深度學習之視覺辨識專論 Selected Topics in Visual Recognition using Deep Learning
 
-## Personal Information
-
-student ID: 112550183
-name: 蔡承志
 
 ## Introduction
 
@@ -79,10 +75,7 @@ hw1/
 
 ## Performance Snapshot
 
-![alt text](report/imgs/image.png)
-![alt text](report/imgs/image-2.png)
+![alt text](image.png)
+![alt text](image-2.png)
+![alt text](image-1.png)
 
-screenshot of the leaderboard
-![alt text](report/imgs/image-1.png)
-
-![alt text](report/imgs/img_append.png)
