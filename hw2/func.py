@@ -1,0 +1,315 @@
+import os
+import logging
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset
+from torchvision import transforms
+from PIL import Image
+from tqdm import tqdm
+
+
+# ==========================================
+# Logger setting (get name from main func)
+# ==========================================
+logger = logging.getLogger(__name__)
+
+
+# ==========================================
+# device
+# ==========================================
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+# ==========================================
+# Dataset (Training use) [process BBox and class change]
+# ==========================================
+class DigitDetectionDataset(Dataset):
+    def __init__(self, img_dir, annotation_file, processor):
+        self.img_dir = img_dir
+        self.processor = processor
+
+        self.coco_data = self._get_coco_json_data(annotation_file)
+        
+
+        self.images = {img['id']: img for img in coco_data['images']}
+        self.annotations = coco_data['annotations']
+
+        # put multi anns into image_id 
+        self.img_to_anns = {}
+
+        for ann in self.annotations:
+            img_id = ann['image_id']
+            if img_id not in self.img_to_anns:
+                self.img_to_anns[img_id] = []
+            self.img_to_anns[img_id].append(ann)
+
+        self.image_ids = list(self.images.keys())
+
+    def __len__(self):
+        return len(self.image_ids)
+
+    def _get_coco_json_data(self, annotation_file):
+        with open(annotation_file, 'r') as f:
+            coco_data = json.load(f)
+        return coco_data
+
+    def __getitem__(self, idx):
+        img_id = self.image_ids[idx]
+        img_info = self.images[img_id]
+        img_path = os.path.join(self.img_dir, img_info['file_name'])
+
+        image = Image.open(img_path).convert("RGB")
+        img_w, img_h = image.size
+
+        anns = self.img_to_anns.get(img_id, [])
+        boxes = []
+        labels = []
+
+        # ==========================================
+        # process BBox
+        # ==========================================
+        for ann in anns:
+            # COCO: [x_min, y_min, w, h]
+            x_min, y_min, w, h = ann['bbox']
+
+            # DETR need norm [center_x, center_y, width, height]
+            cx = (x_min + (w / 2)) / img_w
+            cy = (y_min + (h / 2)) / img_h
+            norm_w = w / img_w
+            norm_h = h / img_h
+
+            boxes.append([cx, cy, norm_w, norm_h])
+
+            # model label should start from 0 (data category id starts from 1)
+            labels.append(ann['category_id'] - 1)
+
+        # Empty Target Handling
+        if len(boxes) == 0:
+            boxes = torch.empty((0, 4), dtype=torch.float32)
+            labels = torch.empty((0,), dtype=torch.int64)
+        else:
+            boxes = torch.tensor(boxes, dtype=torch.float32)
+            labels = torch.tensor(labels, dtype=torch.int64)
+
+        target = {
+            "image_id": torch.tensor([img_id]),
+            "boxes": boxes,
+            "class_labels": labels
+        }
+
+        return image, target
+
+
+def collate_fn(batch, processor):
+    """
+    DETR 需要把不同大小的圖片 Pad 到相同大小，並產生 pixel_mask
+    """
+    images = [item[0] for item in batch]
+    targets = [item[1] for item in batch]
+
+    # processor 會自動幫我們做 Resize, Normalize 以及 Padding
+    encoding = processor(images=images, return_tensors="pt")
+
+    batch_dict = {
+        "pixel_values": encoding["pixel_values"],
+        "pixel_mask": encoding["pixel_mask"],
+        "labels": targets
+    }
+    return batch_dict
+
+
+
+
+
+# ==========================================
+# 1. 測試集 Dataset 準備 (無標籤版本)
+# ==========================================
+class DigitTestDataset(Dataset):
+    def __init__(self, img_dir):
+        self.img_dir = img_dir
+        # 取得所有圖片檔案，並假設檔名即為 image_id (例如: "123.jpg" -> 123)
+        self.image_files = [
+            f for f in os.listdir(img_dir)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+        ]
+        
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        file_name = self.image_files[idx]
+        img_path = os.path.join(self.img_dir, file_name)
+        
+        # 萃取 image_id (移除副檔名)
+        image_id = int(os.path.splitext(file_name)[0])
+        
+        image = Image.open(img_path).convert("RGB")
+        original_size = image.size  # (width, height)
+        
+        return image, image_id, original_size
+
+
+def test_collate_fn(batch, processor):
+    """
+    為測試集準備的 collate_fn，不需要處理 labels
+    """
+    images = [item[0] for item in batch]
+    image_ids = [item[1] for item in batch]
+    original_sizes = [item[2] for item in batch]
+
+    encoding = processor(images=images, return_tensors="pt")
+
+    return {
+        "pixel_values": encoding["pixel_values"],
+        "pixel_mask": encoding["pixel_mask"],
+        "image_ids": image_ids,
+        "original_sizes": original_sizes
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ==========================================
+# build model
+# ==========================================
+def build_model(num_classes, dropout_rate, if_train, weight_path=""):
+    """
+    pretrained_backbone ResNet-50, init Encoder/Decoder of DETR
+    """
+    config = DetrConfig(
+        backbone="resnet50",
+        use_pretrained_backbone=if_train,
+        num_labels=num_classes,
+        init_std=0.02,
+        init_xavier_std=1.0,
+
+        # append Dropout
+        dropout=dropout_rate,            # 預設是 0.1，調高到 0.2 或 0.3
+        attention_dropout=0.1,           # 給 Attention 層加上輕微的 Dropout
+        activation_dropout=0.1,          # 給 FFN 層加上輕微的 Dropout
+    )
+    # use pretrain ResNet to init DETR 
+    model = DetrForObjectDetection(config)
+
+
+    if not if_train:
+        logger.info(f"load weight: {weight_path}")
+        state_dict = torch.load(weight_path, map_location=device)
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()
+
+
+
+    return model
+
+
+
+
+
+
+
+# ==========================================
+# 2. 建立與載入模型
+# ==========================================
+def load_trained_model(weight_path, num_classes):
+    """
+    建立與訓練時一模一樣的架構，並載入訓練好的權重
+    """
+    logger.info("正在建立 DETR 模型架構...")
+    config = DetrConfig(
+        backbone="resnet50",
+        use_pretrained_backbone=False, # 推論時不需要重新下載 Backbone 預訓練
+        num_labels=num_classes,
+    )
+    model = DetrForObjectDetection(config)
+    
+    logger.info(f"正在載入權重: {weight_path}")
+    state_dict = torch.load(weight_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+    
+    return model
+
+
+
+
+
+
+# ==========================================
+# train_one_epoch
+# ==========================================
+def train_one_epoch(model, train_loader, optimizer):
+    model.train()
+    total_loss = 0
+
+    pbar = tqdm(train_loader, desc="Training")
+
+    for batch in pbar:
+        pixel_values = batch["pixel_values"].to(device)
+        pixel_mask = batch["pixel_mask"].to(device)
+
+        labels = [{k: v.to(device) for k, v in t.items()}
+                  for t in batch["labels"]]
+
+        optimizer.zero_grad()
+
+        outputs = model(pixel_values=pixel_values,
+                        pixel_mask=pixel_mask,
+                        labels=labels)
+
+        loss = outputs.loss
+        loss.backward()
+
+        # Gradient clip
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+        optimizer.step()
+
+        total_loss += loss.item()
+        pbar.set_postfix({"Loss": f"{loss.item():.4f}"})
+
+    avg_loss = total_loss / len(train_loader)
+    logger.info(f"Avg Train Loss: {avg_loss:.4f}")
+    return avg_loss
+
+
+
+
+# ==========================================
+# eval_one_epoch
+# ==========================================
+def eval_one_epoch(model, valid_loader):
+    model.eval()
+    total_loss = 0
+
+    pbar = tqdm(valid_loader, desc=f"Evaluating")
+    with torch.no_grad():
+        for batch in pbar:
+            pixel_values = batch["pixel_values"].to(device)
+            pixel_mask = batch["pixel_mask"].to(device)
+            labels = [{k: v.to(device) for k, v in t.items()}
+                      for t in batch["labels"]]
+
+            outputs = model(pixel_values=pixel_values,
+                            pixel_mask=pixel_mask,
+                            labels=labels)
+
+            loss = outputs.loss
+            total_loss += loss.item()
+            pbar.set_postfix({"Loss": f"{loss.item():.4f}"})
+
+    avg_loss = total_loss / len(valid_loader)
+    logger.info(f"Avg Eval Loss: {avg_loss:.4f}")
+    return avg_loss
+
