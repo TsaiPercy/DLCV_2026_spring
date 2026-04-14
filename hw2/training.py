@@ -140,9 +140,9 @@ def build_model(num_classes):
 
 
 # ==========================================
-# 3. 訓練邏輯
+# 3. 訓練與驗證邏輯
 # ==========================================
-def train(model, train_loader, optimizer, epoch):
+def train_one_epoch(model, train_loader, optimizer, epoch):
     model.train()
     total_loss = 0
 
@@ -175,62 +175,39 @@ def train(model, train_loader, optimizer, epoch):
     return avg_loss
 
 
-# ==========================================
-# 4. 生成預測結果 (推論)
-# ==========================================
-def generate_submission(model, test_loader, processor, output_path):
+def evaluate_one_epoch(model, valid_loader, epoch):
+    """
+    新增的驗證邏輯：在驗證集上計算 Loss，不更新權重
+    """
     model.eval()
-    results = []
+    total_loss = 0
 
-    logger.info("開始生成預測結果...")
+    pbar = tqdm(valid_loader, desc=f"Epoch {epoch} Validating")
     with torch.no_grad():
-        for batch in tqdm(test_loader, desc="Inference"):
+        for batch in pbar:
             pixel_values = batch["pixel_values"].to(device)
             pixel_mask = batch["pixel_mask"].to(device)
-            targets = batch["labels"]
+            labels = [{k: v.to(device) for k, v in t.items()}
+                      for t in batch["labels"]]
 
-            outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask)
+            outputs = model(pixel_values=pixel_values,
+                            pixel_mask=pixel_mask,
+                            labels=labels)
 
-            # 抓取原始圖片大小以還原 BBox
-            target_sizes = torch.tensor(
-                [[t["orig_size"][1], t["orig_size"][0]] for t in targets]
-            ).to(device)
+            loss = outputs.loss
+            total_loss += loss.item()
+            pbar.set_postfix({"Loss": f"{loss.item():.4f}"})
 
-            # 後處理：將輸出的 logits 和 box 轉換成實際座標
-            processed_results = processor.post_process_object_detection(
-                outputs, target_sizes=target_sizes, threshold=0.5
-            )
-
-            for i, result in enumerate(processed_results):
-                img_id = targets[i]["image_id"].item()
-                scores = result["scores"].cpu().tolist()
-                labels = result["labels"].cpu().tolist()
-                boxes = result["boxes"].cpu().tolist()
-
-                for score, label, box in zip(scores, labels, boxes):
-                    # post_process 吐出的是 [x_min, y_min, x_max, y_max]
-                    # 作業要求的是 [x_min, y_min, w, h]
-                    x_min, y_min, x_max, y_max = box
-                    w = x_max - x_min
-                    h = y_max - y_min
-
-                    results.append({
-                        "image_id": int(img_id),
-                        "bbox": [x_min, y_min, w, h],
-                        "score": score,
-                        "category_id": int(label) + 1  # 轉回 1 開始的類別
-                    })
-
-    with open(output_path, "w") as f:
-        json.dump(results, f, indent=4)
-    logger.info(f"✅ 預測結果已成功儲存至 {output_path}")
+    avg_loss = total_loss / len(valid_loader)
+    logger.info(f"Epoch [{epoch}] Avg Valid Loss: {avg_loss:.4f}")
+    return avg_loss
 
 
 # ==========================================
-# 5. 主程式 Main
+# 4. 主程式 Main
 # ==========================================
 def main():
-    # ------------------ 超參數設定 ------------------
+    # ------------------ 超參數與路徑設定 ------------------
     batch_size = 4
     num_epochs = 15
     lr = 1e-4
@@ -238,16 +215,20 @@ def main():
     weight_decay = 1e-4
     num_classes = 10    # 數字 0-9 共 10 類
 
-    train_dir = "./data/train"           # 請改成你的實際路徑
-    train_ann = "./data/train.json"      # 請改成你的實際路徑
-    save_path = "./model_weight/detr_best.pth"
+    # 配合新的資料夾結構
+    train_dir = "./data/train"
+    train_ann = "./data/train.json"
+    valid_dir = "./data/valid"
+    valid_ann = "./data/valid.json"
+    
+    save_path = f"./model_weight/detr_best_{current_time}.pth"
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    # 初始化 Image Processor
+    # ------------------ 初始化與資料讀取 ------------------
     processor = AutoImageProcessor.from_pretrained("facebook/detr-resnet-50")
 
-    # 建立 Dataset 與 DataLoader
+    logger.info("正在載入 Training Dataset...")
     train_dataset = DigitDetectionDataset(train_dir, train_ann, processor)
     train_loader = DataLoader(
         train_dataset,
@@ -257,7 +238,17 @@ def main():
         num_workers=4
     )
 
-    # 建立模型
+    logger.info("正在載入 Validation Dataset...")
+    valid_dataset = DigitDetectionDataset(valid_dir, valid_ann, processor)
+    valid_loader = DataLoader(
+        valid_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # 驗證集不需要打亂
+        collate_fn=lambda x: collate_fn(x, processor),
+        num_workers=4
+    )
+
+    # ------------------ 模型與優化器 ------------------
     model = build_model(num_classes).to(device)
 
     # 針對 Backbone 與 Transformer 設定不同的學習率
@@ -268,22 +259,31 @@ def main():
                     if "backbone" in n and p.requires_grad],
          "lr": lr_backbone},
     ]
-    optimizer = torch.optim.AdamW(param_dicts, lr=lr,
-                                  weight_decay=weight_decay)
+    optimizer = torch.optim.AdamW(param_dicts, lr=lr, weight_decay=weight_decay)
 
-    # 開始訓練
+    # ------------------ 開始訓練 ------------------
     logger.info("========================================")
     logger.info("開始訓練 DETR (ResNet-50 Backbone)")
     logger.info("========================================")
 
+    best_val_loss = float('inf')
+
     for epoch in range(1, num_epochs + 1):
-        train_loss = train(model, train_loader, optimizer, epoch)
+        # 1. 訓練
+        train_loss = train_one_epoch(model, train_loader, optimizer, epoch)
+        
+        # 2. 驗證
+        val_loss = evaluate_one_epoch(model, valid_loader, epoch)
 
-        # 這裡建議加上 Validation 的邏輯 (與 Train 類似，只是用 torch.no_grad)
-        # 並儲存 Loss 最低的模型
-        torch.save(model.state_dict(), save_path)
+        # 3. 儲存最佳模型
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), save_path)
+            logger.info(f"✨ 發現更低的 Valid Loss ({val_loss:.4f})，已儲存最佳權重至 {save_path}！")
+        
+        logger.info("-" * 40)
 
-    logger.info("訓練完成！")
+    logger.info("🎉 訓練完成！")
 
 
 if __name__ == "__main__":

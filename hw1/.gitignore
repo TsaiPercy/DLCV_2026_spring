@@ -12,3 +12,5 @@ other/
 *.docx
 
 *.pyc
+
+*__pycache__/
