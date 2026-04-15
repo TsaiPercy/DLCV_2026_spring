@@ -174,7 +174,13 @@ def test_collate_fn(batch, processor):
 # ==========================================
 # build model
 # ==========================================
-def build_model(num_classes, dropout_rate, if_train, weight_path=""):
+def build_model(
+    num_classes, 
+    num_query, 
+    dropout_rate, 
+    if_train, 
+    weight_path=""
+):
     """
     pretrained_backbone ResNet-50, init Encoder/Decoder of DETR
     """
@@ -182,13 +188,20 @@ def build_model(num_classes, dropout_rate, if_train, weight_path=""):
         backbone="resnet50",
         use_pretrained_backbone=if_train,
         num_labels=num_classes,
+        num_query=num_query,                       # default 100
         init_std=0.02,
         init_xavier_std=1.0,
 
+        
+        
         # append Dropout
-        dropout=dropout_rate,            # 預設是 0.1，調高到 0.2 或 0.3
-        attention_dropout=0.1,           # 給 Attention 層加上輕微的 Dropout
-        activation_dropout=0.1,          # 給 FFN 層加上輕微的 Dropout
+        # dropout=dropout_rate,            # default 0.1
+        # attention_dropout=0.1,           # Attention Dropout
+        # activation_dropout=0.1,          # FFN Dropout
+        
+        
+    
+        auxiliary_loss=True,
     )
     # use pretrain ResNet to init DETR 
     model = DetrForObjectDetection(config)

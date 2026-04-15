@@ -130,7 +130,7 @@ def main():
     # --------------------------------------------------------------
     # path setting
     # --------------------------------------------------------------
-    train_model_name = "20260414_212539"
+    train_model_name = "20260415_144031"
 
     test_dir = "./data/test"
     weight_path = f"./model_weight/detr_best_{train_model_name}.pth"
@@ -147,7 +147,8 @@ def main():
     batch_size = 1
     num_classes = 10
     dropout_rate = 0.2
-    confidence_threshold = 0.05  # 可以根據結果微調，例如降到 0.4 抓出更多數字
+    num_query = 20
+    confidence_threshold = 0.01  # 可以根據結果微調，例如降到 0.4 抓出更多數字
     
     # --------------------------------------------
     
@@ -159,12 +160,13 @@ def main():
         batch_size=batch_size, 
         shuffle=False, 
         collate_fn=lambda x: func.test_collate_fn(x, processor),
-        num_workers=4,
+        num_workers=8,
     )
     
     # 2. load_model
     model = func.build_model(
-        num_classes, 
+        num_classes,
+        num_query,
         dropout_rate, 
         False, 
         weight_path,

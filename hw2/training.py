@@ -82,6 +82,7 @@ def training_pipeline(
     lr,
     lr_backbone,
     dropout_rate,
+    num_query,
 
     weight_decay,
     num_classes,
@@ -104,7 +105,7 @@ def training_pipeline(
         batch_size=batch_size,
         shuffle=True,
         collate_fn=lambda x: func.collate_fn(x, processor),
-        num_workers=4,
+        num_workers=num_workers,
         worker_init_fn=seed_worker,
         generator=generator
     )
@@ -116,7 +117,7 @@ def training_pipeline(
         batch_size=batch_size,
         shuffle=False,
         collate_fn=lambda x: func.collate_fn(x, processor),
-        num_workers=4,
+        num_workers=num_workers,
         worker_init_fn=seed_worker,
         generator=generator
     )
@@ -128,7 +129,13 @@ def training_pipeline(
     # ==============================================================
     # model setting
     # ==============================================================
-    model = func.build_model(num_classes, dropout_rate, True).to(device)
+    model = func.build_model(
+        num_classes,
+        num_query,
+        dropout_rate,
+        True
+    ).to(device)
+
     logger.info(f"[Training] Model moved to {device}")
 
     param_dicts = [
@@ -232,10 +239,11 @@ def main():
     # hyper setting
     # ==============================================================
     batch_size = 4
-    num_epochs = 15
+    num_epochs = 30
     lr = 1e-4
     lr_backbone = 1e-5
-    dropout_rate = 0.2
+    dropout_rate = 0 # 0.2
+    num_query = 20
 
     weight_decay = 1e-4
     num_classes = 10    # 0-9 => 10 classes 
@@ -266,6 +274,7 @@ def main():
             "lr": lr,
             "lr_backbone": lr_backbone,
             "dropout_rate": dropout_rate,
+            "num_query": num_query,
             
             "weight_decay": weight_decay,
             "num_workers": num_workers,
@@ -291,6 +300,7 @@ def main():
         lr=lr,
         lr_backbone=lr_backbone,
         dropout_rate=dropout_rate,
+        num_query=num_query,
 
         weight_decay=weight_decay,
         num_classes=num_classes,
