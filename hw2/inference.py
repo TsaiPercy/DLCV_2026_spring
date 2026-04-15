@@ -146,7 +146,8 @@ def main():
     # ==============================================================
     batch_size = 1
     num_classes = 10
-    confidence_threshold = 0.5  # 可以根據結果微調，例如降到 0.4 抓出更多數字
+    dropout_rate = 0.2
+    confidence_threshold = 0.05  # 可以根據結果微調，例如降到 0.4 抓出更多數字
     
     # --------------------------------------------
     
@@ -162,7 +163,12 @@ def main():
     )
     
     # 2. load_model
-    model = func.load_trained_model(weight_path, num_classes)
+    model = func.build_model(
+        num_classes, 
+        dropout_rate, 
+        False, 
+        weight_path,
+    )
     
     # 3. start inference
     inference_and_save(
