@@ -98,8 +98,8 @@ def collate_fn(batch, processor):
     )
 
     labels = encoding["labels"]
-    for label_dict in labels:
-        label_dict["class_labels"] = label_dict["class_labels"] - 1
+    # for label_dict in labels:
+    #     label_dict["class_labels"] = label_dict["class_labels"] - 1
 
 
     # pixel_mask is the padding black part
@@ -186,9 +186,9 @@ def build_model(
     """
     config = DetrConfig(
         backbone="resnet50",
-        use_pretrained_backbone=if_train,
+        use_pretrained_backbone=True,
         num_labels=num_classes,
-        num_query=num_query,                       # default 100
+        num_queries=num_query,                       # default 100
         init_std=0.02,
         init_xavier_std=1.0,
 
@@ -211,10 +211,9 @@ def build_model(
         logger.info(f"load weight: {weight_path}")
         state_dict = torch.load(weight_path, map_location=device)
         model.load_state_dict(state_dict)
-        model.to(device)
         model.eval()
 
-
+    model.to(device)
 
     return model
 
