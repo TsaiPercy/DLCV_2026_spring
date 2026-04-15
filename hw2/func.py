@@ -1,12 +1,25 @@
 import os
+import json
 import logging
+import random
+import numpy as np
+from datetime import datetime
 
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset
-from torchvision import transforms
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
+
+from transformers import (
+    DetrConfig,
+    DetrForObjectDetection,
+    AutoImageProcessor
+)
+
+
+import wandb
 from tqdm import tqdm
+
 
 
 # ==========================================
@@ -32,8 +45,8 @@ class DigitDetectionDataset(Dataset):
         self.coco_data = self._get_coco_json_data(annotation_file)
         
 
-        self.images = {img['id']: img for img in coco_data['images']}
-        self.annotations = coco_data['annotations']
+        self.images = {img['id']: img for img in self.coco_data['images']}
+        self.annotations = self.coco_data['annotations']
 
         # put multi anns into image_id 
         self.img_to_anns = {}
@@ -103,14 +116,15 @@ class DigitDetectionDataset(Dataset):
 
 def collate_fn(batch, processor):
     """
-    DETR 需要把不同大小的圖片 Pad 到相同大小，並產生 pixel_mask
+    Dynamic Padding: 
+    process imgs to same as (max size img in this batch)
     """
     images = [item[0] for item in batch]
     targets = [item[1] for item in batch]
 
-    # processor 會自動幫我們做 Resize, Normalize 以及 Padding
     encoding = processor(images=images, return_tensors="pt")
 
+    # pixel_mask is the padding black part
     batch_dict = {
         "pixel_values": encoding["pixel_values"],
         "pixel_mask": encoding["pixel_mask"],
@@ -123,7 +137,7 @@ def collate_fn(batch, processor):
 
 
 # ==========================================
-# 1. 測試集 Dataset 準備 (無標籤版本)
+# Dataset (Testing use) [no label]
 # ==========================================
 class DigitTestDataset(Dataset):
     def __init__(self, img_dir):

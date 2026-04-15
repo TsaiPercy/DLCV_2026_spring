@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import random
+import numpy as np
 from datetime import datetime
 
 import torch
@@ -68,7 +70,27 @@ def seed_worker(workerId):
 
 
 
-def training_pipeline():
+def training_pipeline(
+    train_dir,
+    train_ann,
+    valid_dir,
+    valid_ann,
+    save_path,
+
+    batch_size,
+    num_epochs,
+    lr,
+    lr_backbone,
+    dropout_rate,
+
+    weight_decay,
+    num_classes,
+
+    seed,
+    num_workers,
+    generator,
+
+):
 
     # ==============================================================
     # load data
@@ -81,7 +103,7 @@ def training_pipeline():
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=lambda x: collate_fn(x, processor),
+        collate_fn=lambda x: func.collate_fn(x, processor),
         num_workers=4,
         worker_init_fn=seed_worker,
         generator=generator
@@ -93,7 +115,7 @@ def training_pipeline():
         valid_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=lambda x: collate_fn(x, processor),
+        collate_fn=lambda x: func.collate_fn(x, processor),
         num_workers=4,
         worker_init_fn=seed_worker,
         generator=generator
@@ -106,7 +128,7 @@ def training_pipeline():
     # ==============================================================
     # model setting
     # ==============================================================
-    model = func.build_model(num_classes).to(device)
+    model = func.build_model(num_classes, dropout_rate, True).to(device)
     logger.info(f"[Training] Model moved to {device}")
 
     param_dicts = [
@@ -151,8 +173,7 @@ def training_pipeline():
             best_val_loss = val_loss
             torch.save(model.state_dict(), save_path)
             logger.info(f"Model saved to: {save_path} "
-                        f"(Val Loss: {val_loss:.5f}) "
-                        f"(Val Acc: {val_acc:.5f})")
+                        f"(Val Loss: {val_loss:.5f}) ")
         
         
 
@@ -235,7 +256,7 @@ def main():
     # W&B setting
     # ==============================================================
     wandb.init(
-        project="NYCU_DLCV_HW1",
+        project="NYCU_DLCV_HW2",
         name=f"ResNet50_lr{lr}_bs{batch_size}",
         config={
             "current_time": current_time,

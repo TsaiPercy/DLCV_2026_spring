@@ -3,6 +3,7 @@ import json
 import logging
 from tqdm import tqdm
 from PIL import Image
+from datetime import datetime
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -129,11 +130,11 @@ def main():
     # --------------------------------------------------------------
     # path setting
     # --------------------------------------------------------------
-    train_model_name = "20260328_004701"
+    train_model_name = "20260414_212539"
 
     test_dir = "./data/test"
     weight_path = f"./model_weight/detr_best_{train_model_name}.pth"
-    output_json = f"./submission/pred_{currentTime}_{train_model_name}.json"
+    output_json = f"./submission/pred_{current_time}_{train_model_name}.json"
     os.makedirs("submission", exist_ok=True)
 
 
@@ -143,7 +144,7 @@ def main():
     # ==============================================================
     # hyper setting
     # ==============================================================
-    batch_size = 8
+    batch_size = 1
     num_classes = 10
     confidence_threshold = 0.5  # 可以根據結果微調，例如降到 0.4 抓出更多數字
     
@@ -156,12 +157,12 @@ def main():
         test_dataset, 
         batch_size=batch_size, 
         shuffle=False, 
-        collate_fn=lambda x: test_collate_fn(x, processor),
-        num_workers=4
+        collate_fn=lambda x: func.test_collate_fn(x, processor),
+        num_workers=4,
     )
     
     # 2. load_model
-    model = load_trained_model(weight_path, num_classes)
+    model = func.load_trained_model(weight_path, num_classes)
     
     # 3. start inference
     inference_and_save(
